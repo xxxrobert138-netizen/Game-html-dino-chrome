@@ -19,36 +19,57 @@
     <canvas id="game"></canvas>
 
 <script>
-    const canvas = document.getElementById('game');
+    <!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Neon Cyber Parkour</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; font-family: 'Courier New', Courier, monospace; }
+        canvas { display: block; }
+        #stats { position: absolute; top: 20px; left: 20px; color: #00f2ff; font-size: 24px; text-shadow: 0 0 10px #00f2ff; pointer-events: none; }
+        .controls { position: absolute; bottom: 10px; left: 10px; color: #444; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div id="stats">SCORE: 0</div>
+    <div class="controls">SPACE: JUMP (x2) | F: SHOOT | SHIFT: DASH</div>
+    <canvas id="game"></canvas>
+
+<script>
+const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
-const scoreElement = document.getElementById('score');
+const scoreDisplay = document.getElementById('stats');
 
 canvas.width = window.innerWidth;
 canvas.height = window.innerHeight;
 
 let score = 0;
 let gameActive = true;
-let gameHue = 200; // Для динамического цвета фона
+let frameCount = 0;
+let shakeTime = 0;
 
+// Массивы объектов
 const particles = [];
 const bullets = [];
 const obstacles = [];
-let spawnTimer = 0;
+const drones = []; // Те самые "птицы"
 
 const player = {
-    x: 100, y: 0, w: 45, h: 45,
-    dy: 0, jumpForce: 14, gravity: 0.7,
-    jumps: 0, maxJumps: 2, // Двойной прыжок
-    color: '#00f2ff',
-    angle: 0
+    x: 100, y: 0, w: 40, h: 40,
+    dy: 0, jumpForce: 15, gravity: 0.7,
+    jumps: 0, maxJumps: 2,
+    dashCooldown: 0,
+    isDashing: 0,
+    color: '#00f2ff'
 };
 
-function createParticle(x, y, color, count = 10) {
+function createParticle(x, y, color, count = 8, speed = 5) {
     for(let i=0; i<count; i++) {
         particles.push({
             x, y, 
-            dx: (Math.random() - 0.5) * 12,
-            dy: (Math.random() - 0.5) * 12,
+            dx: (Math.random() - 0.5) * speed,
+            dy: (Math.random() - 0.5) * speed,
             life: 1.0,
             color
         });
@@ -57,116 +78,145 @@ function createParticle(x, y, color, count = 10) {
 
 function update() {
     if (!gameActive) return;
+    frameCount++;
 
-    gameHue += 0.1; // Плавная смена цвета мира
-    
+    // Тряска камеры
+    if (shakeTime > 0) shakeTime--;
+
+    // Регенерация рывка
+    if (player.dashCooldown > 0) player.dashCooldown--;
+    if (player.isDashing > 0) {
+        player.isDashing--;
+        createParticle(player.x, player.y + player.h/2, player.color, 2, 2);
+    }
+
     // Физика игрока
     player.dy += player.gravity;
     player.y += player.dy;
-    if (!player.grounded) player.angle += 0.2;
-
-    const groundLevel = canvas.height - 100;
-    if (player.y + player.h > groundLevel) {
-        player.y = groundLevel - player.h;
+    
+    const ground = canvas.height - 100;
+    if (player.y + player.h > ground) {
+        player.y = ground - player.h;
         player.dy = 0;
-        player.grounded = true;
         player.jumps = 0;
-        player.angle = 0;
     }
 
-    // Пули
-    bullets.forEach((b, bi) => {
-        b.x += 15;
-        if (b.x > canvas.width) bullets.splice(bi, 1);
-        
-        // Попадание во врага
-        obstacles.forEach((obs, oi) => {
-            if (b.x < obs.x + obs.w && b.x + 10 > obs.x && b.y < obs.y + obs.h && b.y + 10 > obs.y) {
-                createParticle(obs.x, obs.y, '#ff0055', 15);
-                obstacles.splice(oi, 1);
-                bullets.splice(bi, 1);
-                score += 2;
-                scoreElement.innerText = `Счет: ${score} (BOOM!)`;
-            }
-        });
+    // Логика пуль
+    bullets.forEach((b, i) => {
+        b.x += 20;
+        if (b.x > canvas.width) bullets.splice(i, 1);
     });
 
-    // Препятствия (теперь разной высоты)
-    spawnTimer++;
-    if (spawnTimer > Math.max(30, 80 - score/2)) {
-        const h = Math.random() * 60 + 20;
-        const isAir = Math.random() > 0.8; // Летающие враги
-        obstacles.push({
-            x: canvas.width,
-            y: isAir ? groundLevel - h - 80 : groundLevel - h,
-            w: 40, h: h,
-            speed: 10 + (score/15)
-        });
-        spawnTimer = 0;
+    // Логика наземных препятствий
+    if (frameCount % 100 === 0) {
+        obstacles.push({ x: canvas.width, y: ground - 50, w: 30, h: 50, speed: 8 + score/10 });
     }
+
+    // Логика ДРОНОВ (Птиц)
+    if (frameCount % 160 === 0) {
+        drones.push({
+            x: canvas.width,
+            baseY: ground - 150 - Math.random() * 100,
+            y: 0,
+            w: 30, h: 20,
+            phase: 0,
+            speed: 6 + score/12
+        });
+    }
+
+    drones.forEach((d, i) => {
+        d.x -= d.speed;
+        d.phase += 0.05;
+        d.y = d.baseY + Math.sin(d.phase) * 50; // Движение волной
+
+        // Проверка столкновения с пулей
+        bullets.forEach((b, bi) => {
+            if (b.x < d.x + d.w && b.x + 15 > d.x && b.y < d.y + d.h && b.y + 5 > d.y) {
+                createParticle(d.x, d.y, '#ffff00', 20, 10);
+                drones.splice(i, 1);
+                bullets.splice(bi, 1);
+                score += 5;
+                shakeTime = 10;
+            }
+        });
+
+        if (player.x < d.x + d.w && player.x + player.w > d.x && player.y < d.y + d.h && player.y + player.h > d.y) {
+            if (player.isDashing > 0) { // Если летим рывком - ломаем дрон
+                createParticle(d.x, d.y, '#ffff00', 20);
+                drones.splice(i, 1);
+                score += 5;
+            } else {
+                gameOver();
+            }
+        }
+    });
 
     obstacles.forEach((obs, i) => {
         obs.x -= obs.speed;
-        // Коллизия с игроком
-        if (player.x < obs.x + obs.w && player.x + player.w > obs.x &&
-            player.y < obs.y + obs.h && player.y + player.h > obs.y) gameOver();
-        if (obs.x + obs.w < 0) { obstacles.splice(i, 1); score++; scoreElement.innerText = `Счет: ${score}`; }
+        if (player.x < obs.x + obs.w && player.x + player.w > obs.x && player.y < obs.y + obs.h && player.y + player.h > obs.y) {
+            if (player.isDashing == 0) gameOver();
+        }
+        if (obs.x + obs.w < 0) { obstacles.splice(i, 1); score++; }
     });
 
     particles.forEach((p, i) => {
         p.x += p.dx; p.y += p.dy; p.life -= 0.02;
         if (p.life <= 0) particles.splice(i, 1);
     });
+
+    scoreDisplay.innerText = `SCORE: ${score} ${player.dashCooldown === 0 ? ' | DASH READY' : ''}`;
 }
 
 function draw() {
-    // Градиентный фон
-    ctx.fillStyle = `hsl(${gameHue % 360}, 30%, 5%)`;
+    ctx.save();
+    if (shakeTime > 0) ctx.translate(Math.random()*10 - 5, Math.random()*10 - 5);
+
+    ctx.fillStyle = '#050505';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Рисуем «энергетический» пол
-    ctx.shadowBlur = 15;
-    ctx.shadowColor = `hsl(${gameHue % 360}, 100%, 50%)`;
-    ctx.strokeStyle = `hsl(${gameHue % 360}, 100%, 50%)`;
-    ctx.lineWidth = 4;
-    ctx.beginPath();
-    ctx.moveTo(0, canvas.height - 100);
-    ctx.lineTo(canvas.width, canvas.height - 100);
-    ctx.stroke();
+    // Сетка на фоне
+    ctx.strokeStyle = '#111';
+    for(let i=0; i<canvas.width; i+=50) {
+        ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, canvas.height); ctx.stroke();
+    }
+
+    // Пол
+    ctx.strokeStyle = player.color;
+    ctx.lineWidth = 3;
+    ctx.strokeRect(-10, canvas.height - 100, canvas.width + 20, 100);
 
     // Пули
     ctx.fillStyle = '#fff';
     bullets.forEach(b => ctx.fillRect(b.x, b.y, 15, 5));
 
+    // Дроны
+    drones.forEach(d => {
+        ctx.fillStyle = '#ffff00';
+        ctx.shadowBlur = 15; ctx.shadowColor = 'yellow';
+        ctx.fillRect(d.x, d.y, d.w, d.h);
+        ctx.fillRect(d.x - 5, d.y + 5, 5, 5); // Детали дрона
+        ctx.fillRect(d.x + d.w, d.y + 5, 5, 5);
+    });
+
+    // Препятствия
+    ctx.fillStyle = '#ff0055';
+    ctx.shadowColor = '#ff0055';
+    obstacles.forEach(obs => ctx.fillRect(obs.x, obs.y, obs.w, obs.h));
+
+    // Игрок
+    ctx.shadowColor = player.color;
+    ctx.fillStyle = player.isDashing > 0 ? '#fff' : player.color;
+    ctx.fillRect(player.x, player.y, player.w, player.h);
+
     // Частицы
+    ctx.shadowBlur = 0;
     particles.forEach(p => {
         ctx.globalAlpha = p.life;
         ctx.fillStyle = p.color;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, 3, 0, Math.PI*2);
-        ctx.fill();
+        ctx.fillRect(p.x, p.y, 3, 3);
     });
     ctx.globalAlpha = 1;
-
-    // Игрок
-    ctx.save();
-    ctx.translate(player.x + player.w/2, player.y + player.h/2);
-    ctx.rotate(player.angle);
-    ctx.shadowColor = player.color;
-    ctx.fillStyle = player.color;
-    ctx.fillRect(-player.w/2, -player.h/2, player.w, player.h);
-    // Глаза игрока (детализация)
-    ctx.fillStyle = 'black';
-    ctx.fillRect(10, -15, 5, 10); 
     ctx.restore();
-
-    // Враги
-    obstacles.forEach(obs => {
-        ctx.shadowColor = '#ff0055';
-        ctx.fillStyle = '#ff0055';
-        ctx.fillRect(obs.x, obs.y, obs.w, obs.h);
-    });
-    ctx.shadowBlur = 0;
 }
 
 function loop() {
@@ -177,29 +227,33 @@ function loop() {
 
 function gameOver() {
     gameActive = false;
-    createParticle(player.x, player.y, '#ff0055', 40);
-    setTimeout(() => { alert(`ТВОЙ РЕЗУЛЬТАТ: ${score}`); location.reload(); }, 200);
+    createParticle(player.x, player.y, '#ff0055', 50, 15);
+    setTimeout(() => { alert("GAME OVER! SCORE: " + score); location.reload(); }, 200);
 }
 
-// Управление
 window.addEventListener('keydown', (e) => {
-    if (e.code === 'Space' || e.code === 'ArrowUp') {
+    if (e.code === 'Space') {
         if (player.jumps < player.maxJumps) {
             player.dy = -player.jumpForce;
             player.jumps++;
-            player.grounded = false;
-            createParticle(player.x, player.y + player.h, player.color);
+            createParticle(player.x + 20, player.y + 40, '#fff');
         }
     }
-    if (e.code === 'KeyF' || e.code === 'Enter') {
-        bullets.push({ x: player.x + player.w, y: player.y + player.h/2, speed: 15 });
-        // Отдача от выстрела
-        player.x -= 5; 
-        setTimeout(() => player.x += 5, 50);
+    if (e.code === 'KeyF') {
+        bullets.push({ x: player.x + 40, y: player.y + 15 });
+    }
+    if (e.code === 'ShiftLeft' && player.dashCooldown === 0) {
+        player.isDashing = 15;
+        player.dashCooldown = 60;
+        createParticle(player.x, player.y + 20, player.color, 20, 10);
     }
 });
 
 loop();
+</script>
+</body>
+</html>
+
 </script>
 </body>
 </html>
