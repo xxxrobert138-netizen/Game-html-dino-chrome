@@ -28,30 +28,27 @@ canvas.height = window.innerHeight;
 
 let score = 0;
 let gameActive = true;
+let gameHue = 200; // Для динамического цвета фона
+
 const particles = [];
-const stars = Array.from({length: 100}, () => ({
-    x: Math.random() * canvas.width,
-    y: Math.random() * canvas.height,
-    size: Math.random() * 2,
-    speed: Math.random() * 2 + 0.5
-}));
-
-const player = {
-    x: 100, y: 0, w: 40, h: 40,
-    dy: 0, jumpForce: 16, gravity: 0.8,
-    grounded: false, color: '#00f2ff',
-    angle: 0 // Для анимации вращения
-};
-
+const bullets = [];
 const obstacles = [];
 let spawnTimer = 0;
 
-function createParticle(x, y, color) {
-    for(let i=0; i<10; i++) {
+const player = {
+    x: 100, y: 0, w: 45, h: 45,
+    dy: 0, jumpForce: 14, gravity: 0.7,
+    jumps: 0, maxJumps: 2, // Двойной прыжок
+    color: '#00f2ff',
+    angle: 0
+};
+
+function createParticle(x, y, color, count = 10) {
+    for(let i=0; i<count; i++) {
         particles.push({
             x, y, 
-            dx: (Math.random() - 0.5) * 10,
-            dy: (Math.random() - 0.5) * 10,
+            dx: (Math.random() - 0.5) * 12,
+            dy: (Math.random() - 0.5) * 12,
             life: 1.0,
             color
         });
@@ -61,41 +58,61 @@ function createParticle(x, y, color) {
 function update() {
     if (!gameActive) return;
 
-    // Гравитация и вращение
+    gameHue += 0.1; // Плавная смена цвета мира
+    
+    // Физика игрока
     player.dy += player.gravity;
     player.y += player.dy;
-    if (!player.grounded) player.angle += 0.15;
-    else player.angle = 0;
+    if (!player.grounded) player.angle += 0.2;
 
     const groundLevel = canvas.height - 100;
     if (player.y + player.h > groundLevel) {
         player.y = groundLevel - player.h;
         player.dy = 0;
         player.grounded = true;
+        player.jumps = 0;
+        player.angle = 0;
     }
 
-    // Звезды (фон)
-    stars.forEach(s => {
-        s.x -= s.speed;
-        if (s.x < 0) s.x = canvas.width;
+    // Пули
+    bullets.forEach((b, bi) => {
+        b.x += 15;
+        if (b.x > canvas.width) bullets.splice(bi, 1);
+        
+        // Попадание во врага
+        obstacles.forEach((obs, oi) => {
+            if (b.x < obs.x + obs.w && b.x + 10 > obs.x && b.y < obs.y + obs.h && b.y + 10 > obs.y) {
+                createParticle(obs.x, obs.y, '#ff0055', 15);
+                obstacles.splice(oi, 1);
+                bullets.splice(bi, 1);
+                score += 2;
+                scoreElement.innerText = `Счет: ${score} (BOOM!)`;
+            }
+        });
     });
 
-    // Препятствия
+    // Препятствия (теперь разной высоты)
     spawnTimer++;
-    if (spawnTimer > Math.max(35, 90 - score)) {
-        const size = Math.random() * 40 + 20;
-        obstacles.push({ x: canvas.width, y: groundLevel - size, w: size, h: size, speed: 9 + (score/10) });
+    if (spawnTimer > Math.max(30, 80 - score/2)) {
+        const h = Math.random() * 60 + 20;
+        const isAir = Math.random() > 0.8; // Летающие враги
+        obstacles.push({
+            x: canvas.width,
+            y: isAir ? groundLevel - h - 80 : groundLevel - h,
+            w: 40, h: h,
+            speed: 10 + (score/15)
+        });
         spawnTimer = 0;
     }
 
     obstacles.forEach((obs, i) => {
         obs.x -= obs.speed;
+        // Коллизия с игроком
         if (player.x < obs.x + obs.w && player.x + player.w > obs.x &&
             player.y < obs.y + obs.h && player.y + player.h > obs.y) gameOver();
         if (obs.x + obs.w < 0) { obstacles.splice(i, 1); score++; scoreElement.innerText = `Счет: ${score}`; }
     });
 
-    // Частицы
     particles.forEach((p, i) => {
         p.x += p.dx; p.y += p.dy; p.life -= 0.02;
         if (p.life <= 0) particles.splice(i, 1);
@@ -103,43 +120,52 @@ function update() {
 }
 
 function draw() {
-    ctx.fillStyle = '#050505';
+    // Градиентный фон
+    ctx.fillStyle = `hsl(${gameHue % 360}, 30%, 5%)`;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Рисуем звезды
-    ctx.fillStyle = '#fff';
-    stars.forEach(s => ctx.fillRect(s.x, s.y, s.size, s.size));
-
-    // Пол
-    ctx.strokeStyle = '#333';
-    ctx.lineWidth = 2;
+    // Рисуем «энергетический» пол
+    ctx.shadowBlur = 15;
+    ctx.shadowColor = `hsl(${gameHue % 360}, 100%, 50%)`;
+    ctx.strokeStyle = `hsl(${gameHue % 360}, 100%, 50%)`;
+    ctx.lineWidth = 4;
     ctx.beginPath();
     ctx.moveTo(0, canvas.height - 100);
     ctx.lineTo(canvas.width, canvas.height - 100);
     ctx.stroke();
 
+    // Пули
+    ctx.fillStyle = '#fff';
+    bullets.forEach(b => ctx.fillRect(b.x, b.y, 15, 5));
+
     // Частицы
     particles.forEach(p => {
         ctx.globalAlpha = p.life;
         ctx.fillStyle = p.color;
-        ctx.fillRect(p.x, p.y, 4, 4);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 3, 0, Math.PI*2);
+        ctx.fill();
     });
     ctx.globalAlpha = 1;
 
-    // Игрок (с вращением)
+    // Игрок
     ctx.save();
     ctx.translate(player.x + player.w/2, player.y + player.h/2);
     ctx.rotate(player.angle);
-    ctx.shadowBlur = 20;
     ctx.shadowColor = player.color;
     ctx.fillStyle = player.color;
     ctx.fillRect(-player.w/2, -player.h/2, player.w, player.h);
+    // Глаза игрока (детализация)
+    ctx.fillStyle = 'black';
+    ctx.fillRect(10, -15, 5, 10); 
     ctx.restore();
 
     // Враги
-    ctx.shadowColor = '#ff0055';
-    ctx.fillStyle = '#ff0055';
-    obstacles.forEach(obs => ctx.fillRect(obs.x, obs.y, obs.w, obs.h));
+    obstacles.forEach(obs => {
+        ctx.shadowColor = '#ff0055';
+        ctx.fillStyle = '#ff0055';
+        ctx.fillRect(obs.x, obs.y, obs.w, obs.h);
+    });
     ctx.shadowBlur = 0;
 }
 
@@ -151,23 +177,28 @@ function loop() {
 
 function gameOver() {
     gameActive = false;
-    createParticle(player.x, player.y, '#ff0055');
-    setTimeout(() => {
-        alert(`GAME OVER! Счет: ${score}`);
-        location.reload();
-    }, 100);
+    createParticle(player.x, player.y, '#ff0055', 40);
+    setTimeout(() => { alert(`ТВОЙ РЕЗУЛЬТАТ: ${score}`); location.reload(); }, 200);
 }
 
-const jumpAction = () => {
-    if (player.grounded && gameActive) {
-        player.dy = -player.jumpForce;
-        player.grounded = false;
-        createParticle(player.x, player.y + player.h, player.color);
+// Управление
+window.addEventListener('keydown', (e) => {
+    if (e.code === 'Space' || e.code === 'ArrowUp') {
+        if (player.jumps < player.maxJumps) {
+            player.dy = -player.jumpForce;
+            player.jumps++;
+            player.grounded = false;
+            createParticle(player.x, player.y + player.h, player.color);
+        }
     }
-};
+    if (e.code === 'KeyF' || e.code === 'Enter') {
+        bullets.push({ x: player.x + player.w, y: player.y + player.h/2, speed: 15 });
+        // Отдача от выстрела
+        player.x -= 5; 
+        setTimeout(() => player.x += 5, 50);
+    }
+});
 
-window.addEventListener('keydown', (e) => { if (e.code === 'Space') jumpAction(); });
-window.addEventListener('mousedown', jumpAction);
 loop();
 </script>
 </body>
