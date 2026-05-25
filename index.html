@@ -20,138 +20,155 @@
 
 <script>
     const canvas = document.getElementById('game');
-    const ctx = canvas.getContext('2d');
-    const scoreElement = document.getElementById('score');
+const ctx = canvas.getContext('2d');
+const scoreElement = document.getElementById('score');
 
-    // Настройки
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
 
-    let score = 0;
-    let gameActive = true;
+let score = 0;
+let gameActive = true;
+const particles = [];
+const stars = Array.from({length: 100}, () => ({
+    x: Math.random() * canvas.width,
+    y: Math.random() * canvas.height,
+    size: Math.random() * 2,
+    speed: Math.random() * 2 + 0.5
+}));
 
-    // Игрок
-    const player = {
-        x: 100,
-        y: canvas.height - 150,
-        w: 50,
-        h: 50,
-        dy: 0,
-        jumpForce: 15,
-        gravity: 0.8,
-        grounded: false,
-        color: '#00f2ff'
-    };
+const player = {
+    x: 100, y: 0, w: 40, h: 40,
+    dy: 0, jumpForce: 16, gravity: 0.8,
+    grounded: false, color: '#00f2ff',
+    angle: 0 // Для анимации вращения
+};
+
+const obstacles = [];
+let spawnTimer = 0;
+
+function createParticle(x, y, color) {
+    for(let i=0; i<10; i++) {
+        particles.push({
+            x, y, 
+            dx: (Math.random() - 0.5) * 10,
+            dy: (Math.random() - 0.5) * 10,
+            life: 1.0,
+            color
+        });
+    }
+}
+
+function update() {
+    if (!gameActive) return;
+
+    // Гравитация и вращение
+    player.dy += player.gravity;
+    player.y += player.dy;
+    if (!player.grounded) player.angle += 0.15;
+    else player.angle = 0;
+
+    const groundLevel = canvas.height - 100;
+    if (player.y + player.h > groundLevel) {
+        player.y = groundLevel - player.h;
+        player.dy = 0;
+        player.grounded = true;
+    }
+
+    // Звезды (фон)
+    stars.forEach(s => {
+        s.x -= s.speed;
+        if (s.x < 0) s.x = canvas.width;
+    });
 
     // Препятствия
-    const obstacles = [];
-    let spawnTimer = 0;
-
-    function createObstacle() {
+    spawnTimer++;
+    if (spawnTimer > Math.max(35, 90 - score)) {
         const size = Math.random() * 40 + 20;
-        obstacles.push({
-            x: canvas.width,
-            y: canvas.height - size - 50,
-            w: size,
-            h: size,
-            speed: 8 + (score / 5) // Сложность растет
-        });
+        obstacles.push({ x: canvas.width, y: groundLevel - size, w: size, h: size, speed: 9 + (score/10) });
+        spawnTimer = 0;
     }
 
-    function update() {
-        if (!gameActive) return;
+    obstacles.forEach((obs, i) => {
+        obs.x -= obs.speed;
+        if (player.x < obs.x + obs.w && player.x + player.w > obs.x &&
+            player.y < obs.y + obs.h && player.y + player.h > obs.y) gameOver();
+        if (obs.x + obs.w < 0) { obstacles.splice(i, 1); score++; scoreElement.innerText = `Счет: ${score}`; }
+    });
 
-        // Гравитация и прыжок
-        player.dy += player.gravity;
-        player.y += player.dy;
+    // Частицы
+    particles.forEach((p, i) => {
+        p.x += p.dx; p.y += p.dy; p.life -= 0.02;
+        if (p.life <= 0) particles.splice(i, 1);
+    });
+}
 
-        const groundLevel = canvas.height - 50 - player.h;
-        if (player.y > groundLevel) {
-            player.y = groundLevel;
-            player.dy = 0;
-            player.grounded = true;
-        }
+function draw() {
+    ctx.fillStyle = '#050505';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-        // Спавн врагов
-        spawnTimer++;
-        if (spawnTimer > Math.max(40, 100 - score)) {
-            createObstacle();
-            spawnTimer = 0;
-        }
+    // Рисуем звезды
+    ctx.fillStyle = '#fff';
+    stars.forEach(s => ctx.fillRect(s.x, s.y, s.size, s.size));
 
-        // Движение врагов и коллизии
-        obstacles.forEach((obs, index) => {
-            obs.x -= obs.speed;
+    // Пол
+    ctx.strokeStyle = '#333';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, canvas.height - 100);
+    ctx.lineTo(canvas.width, canvas.height - 100);
+    ctx.stroke();
 
-            // Проверка столкновения
-            if (player.x < obs.x + obs.w &&
-                player.x + player.w > obs.x &&
-                player.y < obs.y + obs.h &&
-                player.y + player.h > obs.y) {
-                gameOver();
-            }
+    // Частицы
+    particles.forEach(p => {
+        ctx.globalAlpha = p.life;
+        ctx.fillStyle = p.color;
+        ctx.fillRect(p.x, p.y, 4, 4);
+    });
+    ctx.globalAlpha = 1;
 
-            // Удаление лишних и начисление очков
-            if (obs.x + obs.w < 0) {
-                obstacles.splice(index, 1);
-                score++;
-                scoreElement.innerText = `Счет: ${score}`;
-            }
-        });
+    // Игрок (с вращением)
+    ctx.save();
+    ctx.translate(player.x + player.w/2, player.y + player.h/2);
+    ctx.rotate(player.angle);
+    ctx.shadowBlur = 20;
+    ctx.shadowColor = player.color;
+    ctx.fillStyle = player.color;
+    ctx.fillRect(-player.w/2, -player.h/2, player.w, player.h);
+    ctx.restore();
+
+    // Враги
+    ctx.shadowColor = '#ff0055';
+    ctx.fillStyle = '#ff0055';
+    obstacles.forEach(obs => ctx.fillRect(obs.x, obs.y, obs.w, obs.h));
+    ctx.shadowBlur = 0;
+}
+
+function loop() {
+    update();
+    draw();
+    requestAnimationFrame(loop);
+}
+
+function gameOver() {
+    gameActive = false;
+    createParticle(player.x, player.y, '#ff0055');
+    setTimeout(() => {
+        alert(`GAME OVER! Счет: ${score}`);
+        location.reload();
+    }, 100);
+}
+
+const jumpAction = () => {
+    if (player.grounded && gameActive) {
+        player.dy = -player.jumpForce;
+        player.grounded = false;
+        createParticle(player.x, player.y + player.h, player.color);
     }
+};
 
-    function draw() {
-        // Очистка экрана
-        ctx.fillStyle = '#0a0a0a';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-        // Рисуем пол
-        ctx.strokeStyle = '#333';
-        ctx.beginPath();
-        ctx.moveTo(0, canvas.height - 50);
-        ctx.lineTo(canvas.width, canvas.height - 50);
-        ctx.stroke();
-
-        // Рисуем игрока (с неоновым свечением)
-        ctx.shadowBlur = 15;
-        ctx.shadowColor = player.color;
-        ctx.fillStyle = player.color;
-        ctx.fillRect(player.x, player.y, player.w, player.h);
-
-        // Рисуем врагов
-        ctx.shadowColor = '#ff0055';
-        ctx.fillStyle = '#ff0055';
-        obstacles.forEach(obs => {
-            ctx.fillRect(obs.x, obs.y, obs.w, obs.h);
-        });
-
-        ctx.shadowBlur = 0; // Сброс тени для оптимизации
-    }
-
-    function loop() {
-        update();
-        draw();
-        requestAnimationFrame(loop);
-    }
-
-    function gameOver() {
-        gameActive = false;
-        alert(`Игра окончена! Твой счет: ${score}`);
-        location.reload(); // Перезагрузка страницы
-    }
-
-    // Управление
-    const jumpAction = () => {
-        if (player.grounded && gameActive) {
-            player.dy = -player.jumpForce;
-            player.grounded = false;
-        }
-    };
-
-    window.addEventListener('keydown', (e) => { if (e.code === 'Space') jumpAction(); });
-    window.addEventListener('mousedown', jumpAction);
-
-    loop();
+window.addEventListener('keydown', (e) => { if (e.code === 'Space') jumpAction(); });
+window.addEventListener('mousedown', jumpAction);
+loop();
 </script>
 </body>
 </html>
