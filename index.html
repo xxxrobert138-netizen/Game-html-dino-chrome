@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Neon JS Game</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #0a0a0a; color: white; font-family: sans-serif; }
+        canvas { display: block; }
+        #ui { position: absolute; top: 20px; left: 20px; pointer-events: none; }
+        .hint { position: absolute; bottom: 20px; width: 100%; text-align: center; color: #555; }
+    </style>
+</head>
+<body>
+
+    <div id="ui">
+        <h1 id="score">Счет: 0</h1>
+    </div>
+    <div class="hint">Нажми ПРОБЕЛ или КЛИКНИ, чтобы прыгнуть</div>
+    <canvas id="game"></canvas>
+
+<script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const scoreElement = document.getElementById('score');
+
+    // Настройки
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+
+    let score = 0;
+    let gameActive = true;
+
+    // Игрок
+    const player = {
+        x: 100,
+        y: canvas.height - 150,
+        w: 50,
+        h: 50,
+        dy: 0,
+        jumpForce: 15,
+        gravity: 0.8,
+        grounded: false,
+        color: '#00f2ff'
+    };
+
+    // Препятствия
+    const obstacles = [];
+    let spawnTimer = 0;
+
+    function createObstacle() {
+        const size = Math.random() * 40 + 20;
+        obstacles.push({
+            x: canvas.width,
+            y: canvas.height - size - 50,
+            w: size,
+            h: size,
+            speed: 8 + (score / 5) // Сложность растет
+        });
+    }
+
+    function update() {
+        if (!gameActive) return;
+
+        // Гравитация и прыжок
+        player.dy += player.gravity;
+        player.y += player.dy;
+
+        const groundLevel = canvas.height - 50 - player.h;
+        if (player.y > groundLevel) {
+            player.y = groundLevel;
+            player.dy = 0;
+            player.grounded = true;
+        }
+
+        // Спавн врагов
+        spawnTimer++;
+        if (spawnTimer > Math.max(40, 100 - score)) {
+            createObstacle();
+            spawnTimer = 0;
+        }
+
+        // Движение врагов и коллизии
+        obstacles.forEach((obs, index) => {
+            obs.x -= obs.speed;
+
+            // Проверка столкновения
+            if (player.x < obs.x + obs.w &&
+                player.x + player.w > obs.x &&
+                player.y < obs.y + obs.h &&
+                player.y + player.h > obs.y) {
+                gameOver();
+            }
+
+            // Удаление лишних и начисление очков
+            if (obs.x + obs.w < 0) {
+                obstacles.splice(index, 1);
+                score++;
+                scoreElement.innerText = `Счет: ${score}`;
+            }
+        });
+    }
+
+    function draw() {
+        // Очистка экрана
+        ctx.fillStyle = '#0a0a0a';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Рисуем пол
+        ctx.strokeStyle = '#333';
+        ctx.beginPath();
+        ctx.moveTo(0, canvas.height - 50);
+        ctx.lineTo(canvas.width, canvas.height - 50);
+        ctx.stroke();
+
+        // Рисуем игрока (с неоновым свечением)
+        ctx.shadowBlur = 15;
+        ctx.shadowColor = player.color;
+        ctx.fillStyle = player.color;
+        ctx.fillRect(player.x, player.y, player.w, player.h);
+
+        // Рисуем врагов
+        ctx.shadowColor = '#ff0055';
+        ctx.fillStyle = '#ff0055';
+        obstacles.forEach(obs => {
+            ctx.fillRect(obs.x, obs.y, obs.w, obs.h);
+        });
+
+        ctx.shadowBlur = 0; // Сброс тени для оптимизации
+    }
+
+    function loop() {
+        update();
+        draw();
+        requestAnimationFrame(loop);
+    }
+
+    function gameOver() {
+        gameActive = false;
+        alert(`Игра окончена! Твой счет: ${score}`);
+        location.reload(); // Перезагрузка страницы
+    }
+
+    // Управление
+    const jumpAction = () => {
+        if (player.grounded && gameActive) {
+            player.dy = -player.jumpForce;
+            player.grounded = false;
+        }
+    };
+
+    window.addEventListener('keydown', (e) => { if (e.code === 'Space') jumpAction(); });
+    window.addEventListener('mousedown', jumpAction);
+
+    loop();
+</script>
+</body>
+</html>
